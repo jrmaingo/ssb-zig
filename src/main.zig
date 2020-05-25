@@ -1,5 +1,6 @@
 const c = @cImport(@cInclude("sodium.h"));
 const std = @import("std");
+const allocator = std.heap.c_allocator;
 
 pub fn main() anyerror!void {
     var c_res = c.sodium_init();
@@ -20,4 +21,11 @@ pub fn main() anyerror!void {
     std.debug.warn("pk: {}\nsk: {}\nres: {}\n", .{ pk, sk, c_res });
 
     // save key to file
+    const secret_path = if (std.os.getenv("HOME")) |home_dir|
+        try std.fs.path.join(allocator, &[_][]const u8{ home_dir, ".ssb" })
+    else
+        unreachable;
+    defer allocator.free(secret_path);
+
+    std.debug.warn("secret saved to {}\n", .{secret_path});
 }
