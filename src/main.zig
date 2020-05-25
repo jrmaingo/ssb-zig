@@ -5,12 +5,19 @@ pub fn main() anyerror!void {
     var c_res = c.sodium_init();
     if (c_res != 0) {
         std.debug.warn("sodium init error\n", .{});
+        // TODO return error
     }
 
-    var pk: [c.crypto_box_PUBLICKEYBYTES]u8 = undefined;
-    var sk: [c.crypto_box_SECRETKEYBYTES]u8 = undefined;
+    var pk = [_]u8{0} ** c.crypto_sign_ed25519_PUBLICKEYBYTES;
+    var sk = [_]u8{0} ** c.crypto_sign_ed25519_SECRETKEYBYTES;
 
-    c_res = c.crypto_box_keypair(&pk, &sk);
+    // generate identity key pair
+    c_res = c.crypto_sign_ed25519_keypair(&pk, &sk);
+    if (c_res != 0) {
+        // TODO return error
+    }
 
     std.debug.warn("pk: {}\nsk: {}\nres: {}\n", .{ pk, sk, c_res });
+
+    // save key to file
 }
