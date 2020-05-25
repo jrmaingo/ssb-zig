@@ -15,6 +15,8 @@ pub fn build(b: *Builder) void {
     exe.setTarget(target);
     exe.setBuildMode(mode);
     exe.install();
+    exe.addIncludeDir("/usr/local/include/sodium/");
+    exe.linkSystemLibrary("sodium");
 
     const run_cmd = exe.run();
     run_cmd.step.dependOn(b.getInstallStep());
