@@ -4,7 +4,7 @@ const std = @import("std");
 const ssb_dir_name = ".ssb";
 const secret_file_name = "secret";
 
-const Identity = packed struct {
+const Identity = struct {
     pk: [c.crypto_sign_ed25519_PUBLICKEYBYTES]u8 = [_]u8{0} ** c.crypto_sign_ed25519_PUBLICKEYBYTES,
     sk: [c.crypto_sign_ed25519_SECRETKEYBYTES]u8 = [_]u8{0} ** c.crypto_sign_ed25519_SECRETKEYBYTES,
 };
@@ -20,7 +20,7 @@ fn makeIdenity() Identity {
         @panic("Unimplemented");
     }
 
-    std.debug.warn("pk: {x}\nsk: {x}\nres: {}\n", .{ identity.pk, identity.sk, c_res });
+    std.debug.warn("{x}\n", .{identity});
 
     return identity;
 }
@@ -66,7 +66,7 @@ fn loadIdentity(ssb_dir: std.fs.Dir) !Identity {
         @panic("Unimplemented");
     }
 
-    std.debug.warn("loaded keypair:\npk: {x}\nsk: {x}\nres: {}\n", .{ identity.pk, identity.sk, c_res });
+    std.debug.warn("loaded keypair:\n{x}\n", .{identity});
 
     return identity;
 }
