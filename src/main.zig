@@ -35,15 +35,7 @@ fn getSsbPath(allocator: *std.mem.Allocator) ![]u8 {
 }
 
 // save a newly generated identity to ${HOME}/.ssb/secret
-fn saveIdentity(ssb_path: []const u8, identity: Identity) !void {
-    const cwd = std.fs.cwd();
-
-    // Dir.makeOpenPath not visible for some reason :(
-    std.debug.warn("ssb_path: {}\n", .{ssb_path});
-    try cwd.makeDir(ssb_path);
-    var ssb_dir = try cwd.openDir(ssb_path, .{});
-    defer ssb_dir.close();
-
+fn saveIdentity(ssb_dir: std.fs.Dir, identity: Identity) !void {
     const create_flags = std.fs.File.CreateFlags{
         .exclusive = true,
     };
@@ -55,8 +47,7 @@ fn saveIdentity(ssb_path: []const u8, identity: Identity) !void {
 }
 
 // try to load identity from ${HOME}/.ssb
-fn loadIdentity(ssb_path: []const u8) !Identity {
-    const ssb_dir = try std.fs.cwd().openDir(ssb_path, .{});
+fn loadIdentity(ssb_dir: std.fs.Dir) !Identity {
     const secret_file = try ssb_dir.openFile(secret_file_name, .{});
     defer secret_file.close();
 
@@ -77,12 +68,22 @@ pub fn main() anyerror!void {
     const ssb_path = try getSsbPath(allocator);
     defer allocator.free(ssb_path);
 
-    const identity = loadIdentity(ssb_path) catch |err| loadErr: {
+    var ssb_dir = std.fs.cwd().openDir(ssb_path, .{}) catch |err| switch (err) {
+        error.FileNotFound => notFound: {
+            // TODO create new dir
+            try std.fs.cwd().makeDir(ssb_path);
+            break :notFound try std.fs.cwd().openDir(ssb_path, .{});
+        },
+        else => unreachable,
+    };
+    defer ssb_dir.close();
+
+    const identity = loadIdentity(ssb_dir) catch |err| loadErr: {
         // TODO check error cases
 
         // gen new Identity and write to file
         const newIdentity = makeIdenity();
-        try saveIdentity(ssb_path, newIdentity);
+        try saveIdentity(ssb_dir, newIdentity);
         break :loadErr newIdentity;
     };
 
