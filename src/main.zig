@@ -20,7 +20,7 @@ fn makeIdenity() Identity {
         @panic("Unimplemented");
     }
 
-    std.debug.warn("pk: {}\nsk: {}\nres: {}\n", .{ identity.pk, identity.sk, c_res });
+    std.debug.warn("pk: {x}\nsk: {x}\nres: {}\n", .{ identity.pk, identity.sk, c_res });
 
     return identity;
 }
@@ -42,8 +42,9 @@ fn saveIdentity(ssb_dir: std.fs.Dir, identity: Identity) !void {
     const secret_file = try ssb_dir.createFile(secret_file_name, create_flags);
     defer secret_file.close();
 
-    // TODO write key to file
-    @panic("Unimplemented");
+    try secret_file.writeAll(&identity.sk);
+
+    std.debug.warn("done writing\n", .{});
 }
 
 // try to load identity from ${HOME}/.ssb
@@ -51,8 +52,23 @@ fn loadIdentity(ssb_dir: std.fs.Dir) !Identity {
     const secret_file = try ssb_dir.openFile(secret_file_name, .{});
     defer secret_file.close();
 
-    // TODO read identity from file
-    @panic("Unimplemented");
+    var identity = Identity{};
+
+    const read_len = try secret_file.readAll(&identity.sk);
+    if (read_len != identity.sk.len) {
+        // TODO raise error
+        @panic("Unimplemented");
+    }
+
+    const c_res = c.crypto_sign_ed25519_sk_to_pk(&identity.pk, &identity.sk);
+    if (c_res != 0) {
+        // TODO raise error
+        @panic("Unimplemented");
+    }
+
+    std.debug.warn("loaded keypair:\npk: {x}\nsk: {x}\nres: {}\n", .{ identity.pk, identity.sk, c_res });
+
+    return identity;
 }
 
 pub fn main() anyerror!void {
@@ -68,9 +84,9 @@ pub fn main() anyerror!void {
     const ssb_path = try getSsbPath(allocator);
     defer allocator.free(ssb_path);
 
+    // open ssb dir, create if needed
     var ssb_dir = std.fs.cwd().openDir(ssb_path, .{}) catch |err| switch (err) {
         error.FileNotFound => notFound: {
-            // TODO create new dir
             try std.fs.cwd().makeDir(ssb_path);
             break :notFound try std.fs.cwd().openDir(ssb_path, .{});
         },
@@ -78,6 +94,7 @@ pub fn main() anyerror!void {
     };
     defer ssb_dir.close();
 
+    // load identity, create if needed
     const identity = loadIdentity(ssb_dir) catch |err| loadErr: {
         // TODO check error cases
 
@@ -86,6 +103,4 @@ pub fn main() anyerror!void {
         try saveIdentity(ssb_dir, newIdentity);
         break :loadErr newIdentity;
     };
-
-    std.debug.warn("secret saved to {}\n", .{ssb_path});
 }
