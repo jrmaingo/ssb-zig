@@ -4,20 +4,21 @@ const std = @import("std");
 const ssb_dir_name = ".ssb";
 const secret_file_name = "secret";
 
+const CryptoError = error{GenerationFailure};
+
 const Identity = struct {
     pk: [c.crypto_sign_ed25519_PUBLICKEYBYTES]u8 = [_]u8{0} ** c.crypto_sign_ed25519_PUBLICKEYBYTES,
     sk: [c.crypto_sign_ed25519_SECRETKEYBYTES]u8 = [_]u8{0} ** c.crypto_sign_ed25519_SECRETKEYBYTES,
 };
 
 // gen a new identity keypair with libsodium
-fn makeIdenity() Identity {
+fn makeIdenity() !Identity {
     var identity = Identity{};
 
     // generate identity key pair
     const c_res = c.crypto_sign_ed25519_keypair(&identity.pk, &identity.sk);
     if (c_res != 0) {
-        // TODO return error
-        @panic("Unimplemented");
+        return CryptoError.GenerationFailure;
     }
 
     std.debug.warn("{x}\n", .{identity});
@@ -99,7 +100,7 @@ pub fn main() anyerror!void {
         // TODO check error cases
 
         // gen new Identity and write to file
-        const newIdentity = makeIdenity();
+        const newIdentity = try makeIdenity();
         try saveIdentity(ssb_dir, newIdentity);
         break :loadErr newIdentity;
     };
