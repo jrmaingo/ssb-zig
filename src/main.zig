@@ -4,7 +4,7 @@ const std = @import("std");
 const ssb_dir_name = ".ssb";
 const secret_file_name = "secret";
 
-const CryptoError = error{GenerationFailure};
+const CryptoError = error{ Unknown, KeyGenFail, BadKeyFormat };
 
 const Identity = struct {
     pk: [c.crypto_sign_ed25519_PUBLICKEYBYTES]u8 = [_]u8{0} ** c.crypto_sign_ed25519_PUBLICKEYBYTES,
@@ -15,28 +15,31 @@ const Identity = struct {
     const feed_id_suffix = ".ed25519";
     const feed_id_len = feed_id_prefix.len + std.base64.Base64Encoder.calcSize(c.crypto_sign_ed25519_PUBLICKEYBYTES) + feed_id_suffix.len;
 
-    fn getFeedID(pk: [c.crypto_sign_ed25519_PUBLICKEYBYTES]u8, feed_id: []u8) void {
+    fn getFeedID(pk: [c.crypto_sign_ed25519_PUBLICKEYBYTES]u8, feed_id: []u8) !void {
         var pk_base64 = [_]u8{0} ** std.base64.Base64Encoder.calcSize(pk.len);
+
+        if (feed_id.len < pk_base64.len) {
+            return error.NoSpaceLeft;
+        }
+
         std.base64.standard_encoder.encode(&pk_base64, &pk);
         const feed_id_parts = [_][]const u8{ Identity.feed_id_prefix, &pk_base64, Identity.feed_id_suffix };
 
         const out_stream = std.io.fixedBufferStream(feed_id).outStream();
         for (feed_id_parts) |part| {
-            std.debug.warn("part: {}\n", .{part});
             out_stream.writeAll(part) catch unreachable;
-            // TODO handle out buf of wrong size
         }
 
         std.debug.warn("feed_id: {}\n", .{feed_id});
     }
 
-    fn createWithKeypair(sk: [c.crypto_sign_ed25519_SECRETKEYBYTES]u8, pk: [c.crypto_sign_ed25519_PUBLICKEYBYTES]u8) Identity {
+    fn createWithKeypair(sk: [c.crypto_sign_ed25519_SECRETKEYBYTES]u8, pk: [c.crypto_sign_ed25519_PUBLICKEYBYTES]u8) !Identity {
         var identity = Identity{};
 
         std.mem.copy(u8, &identity.sk, &sk);
         std.mem.copy(u8, &identity.pk, &pk);
 
-        Identity.getFeedID(identity.pk, &identity.feed_id);
+        try Identity.getFeedID(identity.pk, &identity.feed_id);
 
         std.debug.warn("{x}\n", .{identity});
 
@@ -45,36 +48,28 @@ const Identity = struct {
 
     // gen a new identity keypair with libsodium
     fn create() !Identity {
-        var identity = Identity{};
+        var sk: [c.crypto_sign_ed25519_SECRETKEYBYTES]u8 = undefined;
+        var pk: [c.crypto_sign_ed25519_PUBLICKEYBYTES]u8 = undefined;
 
         // generate identity key pair
-        const c_res = c.crypto_sign_ed25519_keypair(&identity.pk, &identity.sk);
+        const c_res = c.crypto_sign_ed25519_keypair(&pk, &sk);
         if (c_res != 0) {
-            return CryptoError.GenerationFailure;
+            return CryptoError.KeyGenFail;
         }
 
-        Identity.getFeedID(identity.pk, &identity.feed_id);
-
-        std.debug.warn("created keypair:\n{x}\n", .{identity});
-
-        return identity;
+        return try Identity.createWithKeypair(sk, pk);
     }
 
     fn createFromSecretKey(sk: [c.crypto_sign_ed25519_SECRETKEYBYTES]u8) !Identity {
         var pk: [c.crypto_sign_ed25519_PUBLICKEYBYTES]u8 = undefined;
+
+        // derive pk from sk
         const c_res = c.crypto_sign_ed25519_sk_to_pk(&pk, &sk);
         if (c_res != 0) {
-            // TODO raise error
-            @panic("Unimplemented");
+            return error.KeyGenFail;
         }
 
-        var identity = Identity.createWithKeypair(sk, pk);
-
-        Identity.getFeedID(identity.pk, &identity.feed_id);
-
-        std.debug.warn("loaded keypair:\n{x}\n", .{identity});
-
-        return identity;
+        return try Identity.createWithKeypair(sk, pk);
     }
 };
 
@@ -87,8 +82,11 @@ fn getSsbPath(allocator: *std.mem.Allocator) ![]u8 {
         unreachable;
 }
 
+// TODO store with a sig to detect corruption?
 // save a newly generated identity to ${HOME}/.ssb/secret
 fn saveIdentity(ssb_dir: std.fs.Dir, identity: Identity) !void {
+    errdefer std.debug.warn("failed to write identity to file...\n", .{});
+
     const create_flags = std.fs.File.CreateFlags{
         .exclusive = true,
     };
@@ -102,6 +100,8 @@ fn saveIdentity(ssb_dir: std.fs.Dir, identity: Identity) !void {
 
 // try to load identity from ${HOME}/.ssb
 fn loadIdentity(ssb_dir: std.fs.Dir) !Identity {
+    errdefer std.debug.warn("failed to load identity...\n", .{});
+
     const secret_file = try ssb_dir.openFile(secret_file_name, .{});
     defer secret_file.close();
 
@@ -109,8 +109,7 @@ fn loadIdentity(ssb_dir: std.fs.Dir) !Identity {
 
     const read_len = try secret_file.readAll(&sk);
     if (read_len != sk.len) {
-        // TODO raise error
-        @panic("Unimplemented");
+        return error.BadKeyFormat;
     }
 
     return try Identity.createFromSecretKey(sk);
@@ -122,8 +121,7 @@ pub fn main() anyerror!void {
     var c_res = c.sodium_init();
     if (c_res != 0) {
         std.debug.warn("sodium init error\n", .{});
-        // TODO return error
-        @panic("Unimplemented");
+        return CryptoError.Unknown;
     }
 
     const ssb_path = try getSsbPath(allocator);
@@ -135,17 +133,20 @@ pub fn main() anyerror!void {
             try std.fs.cwd().makeDir(ssb_path);
             break :notFound try std.fs.cwd().openDir(ssb_path, .{});
         },
-        else => unreachable,
+        else => return err,
     };
     defer ssb_dir.close();
 
     // load identity, create if needed
-    const identity = loadIdentity(ssb_dir) catch |err| loadErr: {
-        // TODO check error cases
-
-        // gen new Identity and write to file
-        const newIdentity = try Identity.create();
-        try saveIdentity(ssb_dir, newIdentity);
-        break :loadErr newIdentity;
+    const identity = loadIdentity(ssb_dir) catch |err| switch (err) {
+        error.KeyGenFail, error.FileNotFound, error.BadKeyFormat => noIdentity: {
+            // gen new Identity and write to file
+            const newIdentity = try Identity.create();
+            try saveIdentity(ssb_dir, newIdentity);
+            break :noIdentity newIdentity;
+        },
+        else => return err,
     };
+
+    // TODO rest of program
 }
