@@ -1,0 +1,3 @@
+= ssb-zig
+
+WIP implementation of the https://ssbc.github.io/scuttlebutt-protocol-guide/[Scuttlebutt protocol].
