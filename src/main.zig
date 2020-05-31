@@ -1,5 +1,6 @@
 const c = @cImport(@cInclude("sodium.h"));
 const std = @import("std");
+const warn = std.debug.warn;
 
 const ssb_dir_name = ".ssb";
 const secret_file_name = "secret";
@@ -30,7 +31,7 @@ const Identity = struct {
             out_stream.writeAll(part) catch unreachable;
         }
 
-        std.debug.warn("feed_id: {}\n", .{feed_id});
+        warn("feed_id: {}\n", .{feed_id});
     }
 
     fn createWithKeypair(sk: [c.crypto_sign_ed25519_SECRETKEYBYTES]u8, pk: [c.crypto_sign_ed25519_PUBLICKEYBYTES]u8) !Identity {
@@ -41,7 +42,7 @@ const Identity = struct {
 
         try Identity.getFeedID(identity.pk, &identity.feed_id);
 
-        std.debug.warn("{x}\n", .{identity});
+        warn("{x}\n", .{identity});
 
         return identity;
     }
@@ -85,7 +86,7 @@ fn getSsbPath(allocator: *std.mem.Allocator) ![]u8 {
 // TODO store with a sig to detect corruption?
 // save a newly generated identity to ${HOME}/.ssb/secret
 fn saveIdentity(ssb_dir: std.fs.Dir, identity: Identity) !void {
-    errdefer std.debug.warn("failed to write identity to file...\n", .{});
+    errdefer warn("failed to write identity to file...\n", .{});
 
     const create_flags = std.fs.File.CreateFlags{
         .exclusive = true,
@@ -95,12 +96,12 @@ fn saveIdentity(ssb_dir: std.fs.Dir, identity: Identity) !void {
 
     try secret_file.writeAll(&identity.sk);
 
-    std.debug.warn("done writing\n", .{});
+    warn("done writing\n", .{});
 }
 
 // try to load identity from ${HOME}/.ssb
 fn loadIdentity(ssb_dir: std.fs.Dir) !Identity {
-    errdefer std.debug.warn("failed to load identity...\n", .{});
+    errdefer warn("failed to load identity...\n", .{});
 
     const secret_file = try ssb_dir.openFile(secret_file_name, .{});
     defer secret_file.close();
@@ -120,7 +121,7 @@ pub fn main() anyerror!void {
 
     var c_res = c.sodium_init();
     if (c_res != 0) {
-        std.debug.warn("sodium init error\n", .{});
+        warn("sodium init error\n", .{});
         return CryptoError.Unknown;
     }
 
