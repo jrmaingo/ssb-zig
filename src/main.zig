@@ -1,6 +1,8 @@
-const c = @cImport(@cInclude("sodium.h"));
+const sodium = @cImport(@cInclude("sodium.h"));
+const c = std.c;
 const std = @import("std");
 const warn = std.debug.warn;
+const net = std.net;
 
 const ssb_dir_name = ".ssb";
 const secret_file_name = "secret";
@@ -8,15 +10,15 @@ const secret_file_name = "secret";
 const CryptoError = error{ Unknown, KeyGenFail, BadKeyFormat };
 
 const Identity = struct {
-    pk: [c.crypto_sign_ed25519_PUBLICKEYBYTES]u8 = [_]u8{0} ** c.crypto_sign_ed25519_PUBLICKEYBYTES,
-    sk: [c.crypto_sign_ed25519_SECRETKEYBYTES]u8 = [_]u8{0} ** c.crypto_sign_ed25519_SECRETKEYBYTES,
+    pk: [sodium.crypto_sign_ed25519_PUBLICKEYBYTES]u8 = [_]u8{0} ** sodium.crypto_sign_ed25519_PUBLICKEYBYTES,
+    sk: [sodium.crypto_sign_ed25519_SECRETKEYBYTES]u8 = [_]u8{0} ** sodium.crypto_sign_ed25519_SECRETKEYBYTES,
     feed_id: [feed_id_len]u8 = [_]u8{0} ** feed_id_len,
 
     const feed_id_prefix = "@";
     const feed_id_suffix = ".ed25519";
-    const feed_id_len = feed_id_prefix.len + std.base64.Base64Encoder.calcSize(c.crypto_sign_ed25519_PUBLICKEYBYTES) + feed_id_suffix.len;
+    const feed_id_len = feed_id_prefix.len + std.base64.Base64Encoder.calcSize(sodium.crypto_sign_ed25519_PUBLICKEYBYTES) + feed_id_suffix.len;
 
-    fn getFeedID(pk: [c.crypto_sign_ed25519_PUBLICKEYBYTES]u8, feed_id: []u8) !void {
+    fn getFeedID(pk: [sodium.crypto_sign_ed25519_PUBLICKEYBYTES]u8, feed_id: []u8) !void {
         var pk_base64 = [_]u8{0} ** std.base64.Base64Encoder.calcSize(pk.len);
 
         if (feed_id.len < pk_base64.len) {
@@ -34,7 +36,7 @@ const Identity = struct {
         warn("feed_id: {}\n", .{feed_id});
     }
 
-    fn createWithKeypair(sk: [c.crypto_sign_ed25519_SECRETKEYBYTES]u8, pk: [c.crypto_sign_ed25519_PUBLICKEYBYTES]u8) !Identity {
+    fn createWithKeypair(sk: [sodium.crypto_sign_ed25519_SECRETKEYBYTES]u8, pk: [sodium.crypto_sign_ed25519_PUBLICKEYBYTES]u8) !Identity {
         var identity = Identity{};
 
         std.mem.copy(u8, &identity.sk, &sk);
@@ -49,11 +51,11 @@ const Identity = struct {
 
     // gen a new identity keypair with libsodium
     fn create() !Identity {
-        var sk: [c.crypto_sign_ed25519_SECRETKEYBYTES]u8 = undefined;
-        var pk: [c.crypto_sign_ed25519_PUBLICKEYBYTES]u8 = undefined;
+        var sk: [sodium.crypto_sign_ed25519_SECRETKEYBYTES]u8 = undefined;
+        var pk: [sodium.crypto_sign_ed25519_PUBLICKEYBYTES]u8 = undefined;
 
         // generate identity key pair
-        const c_res = c.crypto_sign_ed25519_keypair(&pk, &sk);
+        const c_res = sodium.crypto_sign_ed25519_keypair(&pk, &sk);
         if (c_res != 0) {
             return CryptoError.KeyGenFail;
         }
@@ -61,11 +63,11 @@ const Identity = struct {
         return try Identity.createWithKeypair(sk, pk);
     }
 
-    fn createFromSecretKey(sk: [c.crypto_sign_ed25519_SECRETKEYBYTES]u8) !Identity {
-        var pk: [c.crypto_sign_ed25519_PUBLICKEYBYTES]u8 = undefined;
+    fn createFromSecretKey(sk: [sodium.crypto_sign_ed25519_SECRETKEYBYTES]u8) !Identity {
+        var pk: [sodium.crypto_sign_ed25519_PUBLICKEYBYTES]u8 = undefined;
 
         // derive pk from sk
-        const c_res = c.crypto_sign_ed25519_sk_to_pk(&pk, &sk);
+        const c_res = sodium.crypto_sign_ed25519_sk_to_pk(&pk, &sk);
         if (c_res != 0) {
             return error.KeyGenFail;
         }
@@ -106,7 +108,7 @@ fn loadIdentity(ssb_dir: std.fs.Dir) !Identity {
     const secret_file = try ssb_dir.openFile(secret_file_name, .{});
     defer secret_file.close();
 
-    var sk: [c.crypto_sign_ed25519_SECRETKEYBYTES]u8 = undefined;
+    var sk: [sodium.crypto_sign_ed25519_SECRETKEYBYTES]u8 = undefined;
 
     const read_len = try secret_file.readAll(&sk);
     if (read_len != sk.len) {
@@ -122,7 +124,7 @@ fn loadIdentity(ssb_dir: std.fs.Dir) !Identity {
 pub fn main() anyerror!void {
     const allocator = std.heap.c_allocator;
 
-    var c_res = c.sodium_init();
+    var c_res = sodium.sodium_init();
     if (c_res != 0) {
         warn("sodium init error\n", .{});
         return CryptoError.Unknown;
@@ -151,6 +153,26 @@ pub fn main() anyerror!void {
         },
         else => return err,
     };
+
+    // TODO create advertising pkt for self
+    const ad_pkt = "TODO actual pk";
+
+    // open socket
+    const socket = c.socket(c.AF_INET, c.SOCK_DGRAM, 0);
+    if (socket == -1) {
+        warn("errno: {}\n", .{c.getErrno(socket)});
+        return error.NoSocket;
+    }
+
+    // advertise self locally
+    const flags = 0; // TODO
+    //"255.255.255.255",
+    const addr = try net.Address.parseIp("127.0.0.1", 8008);
+    const result = c.sendto(socket, ad_pkt, ad_pkt.len, flags, &addr.any, addr.any.len);
+    if (result == -1) {
+        warn("errno: {}\n", .{c.getErrno(result)});
+        return error.SendFail;
+    }
 
     // TODO rest of program
 }
