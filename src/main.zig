@@ -113,7 +113,10 @@ fn loadIdentity(ssb_dir: std.fs.Dir) !Identity {
         return error.BadKeyFormat;
     }
 
-    return try Identity.createFromSecretKey(sk);
+    if (Identity.createFromSecretKey(sk)) |newIdentity| {
+        warn("successfully loaded identity\n", .{});
+        return newIdentity;
+    } else |err| return err;
 }
 
 pub fn main() anyerror!void {
