@@ -1,4 +1,5 @@
 const sodium = @cImport(@cInclude("sodium.h"));
+const ifaddrs = @cImport(@cInclude("ifaddrs.h"));
 const c = std.c;
 const std = @import("std");
 const warn = std.debug.warn;
@@ -154,6 +155,27 @@ pub fn main() anyerror!void {
         else => return err,
     };
 
+    //const ifaddrs = extern struct {};
+
+    // TODO get self IP
+    var my_ifaddrs: [*c]ifaddrs.ifaddrs = null;
+    var ifaddrs_result = ifaddrs.getifaddrs(&my_ifaddrs);
+    if (ifaddrs_result == -1) {
+        warn("errno: {}\n", .{c.getErrno(ifaddrs_result)});
+        return error.NoInterfaceAddress;
+    }
+    // TODO check ret val
+    defer ifaddrs.freeifaddrs(my_ifaddrs);
+
+    var cur_ifaddr = my_ifaddrs;
+    while (cur_ifaddr != null) : (cur_ifaddr = cur_ifaddr.*.ifa_next) {
+        const sockaddr = @ptrCast(*std.os.sockaddr, cur_ifaddr.*.ifa_addr);
+        if (sockaddr.*.family == c.AF_INET) {
+            const addr = net.Address{ .in = @ptrCast(*std.os.sockaddr_in, @alignCast(4, sockaddr)).* };
+            warn("name: {}, addr: {}\n", .{ @as([*:0]const u8, cur_ifaddr.*.ifa_name), addr });
+        }
+    }
+
     // TODO create advertising pkt for self
     const ad_pkt = "TODO actual pk";
 
@@ -168,9 +190,9 @@ pub fn main() anyerror!void {
     const flags = 0; // TODO
     //"255.255.255.255",
     const addr = try net.Address.parseIp("127.0.0.1", 8008);
-    const result = c.sendto(socket, ad_pkt, ad_pkt.len, flags, &addr.any, addr.any.len);
-    if (result == -1) {
-        warn("errno: {}\n", .{c.getErrno(result)});
+    var send_result = c.sendto(socket, ad_pkt, ad_pkt.len, flags, &addr.any, addr.any.len);
+    if (send_result == -1) {
+        warn("errno: {}\n", .{c.getErrno(send_result)});
         return error.SendFail;
     }
 
