@@ -155,26 +155,29 @@ pub fn main() anyerror!void {
         else => return err,
     };
 
-    //const ifaddrs = extern struct {};
-
-    // TODO get self IP
+    // get self IP
     var my_ifaddrs: [*c]ifaddrs.ifaddrs = null;
     var ifaddrs_result = ifaddrs.getifaddrs(&my_ifaddrs);
     if (ifaddrs_result == -1) {
         warn("errno: {}\n", .{c.getErrno(ifaddrs_result)});
         return error.NoInterfaceAddress;
     }
-    // TODO check ret val
     defer ifaddrs.freeifaddrs(my_ifaddrs);
 
     var cur_ifaddr = my_ifaddrs;
-    while (cur_ifaddr != null) : (cur_ifaddr = cur_ifaddr.*.ifa_next) {
+    const self_addr = while (cur_ifaddr != null) : (cur_ifaddr = cur_ifaddr.*.ifa_next) {
         const sockaddr = @ptrCast(*std.os.sockaddr, cur_ifaddr.*.ifa_addr);
         if (sockaddr.*.family == c.AF_INET) {
+            const name = @as([*:0]const u8, cur_ifaddr.*.ifa_name);
             const addr = net.Address{ .in = @ptrCast(*std.os.sockaddr_in, @alignCast(4, sockaddr)).* };
-            warn("name: {}, addr: {}\n", .{ @as([*:0]const u8, cur_ifaddr.*.ifa_name), addr });
+            warn("name: {}, addr: {}\n", .{ name, addr });
+            if (!std.mem.eql(u8, name[0..2], "lo")) {
+                // choose first non-loopback interface
+                warn("chose: {}\n", .{name});
+                break addr;
+            }
         }
-    }
+    } else return error.NoInterfaceAddress;
 
     // TODO create advertising pkt for self
     const ad_pkt = "TODO actual pk";
