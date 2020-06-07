@@ -122,6 +122,33 @@ fn loadIdentity(ssb_dir: std.fs.Dir) !Identity {
     } else |err| return err;
 }
 
+fn getAddr() !net.Address {
+    // get list of interfaces
+    var my_ifaddrs: [*c]ifaddrs.ifaddrs = null;
+    const ifaddrs_result = ifaddrs.getifaddrs(&my_ifaddrs);
+    if (ifaddrs_result == -1) {
+        warn("errno: {}\n", .{c.getErrno(ifaddrs_result)});
+        return error.NoInterfaceAddress;
+    }
+    defer ifaddrs.freeifaddrs(my_ifaddrs);
+
+    // pick the first usable IPv4 interface
+    var cur_ifaddr = my_ifaddrs;
+    return while (cur_ifaddr != null) : (cur_ifaddr = cur_ifaddr.*.ifa_next) {
+        const sockaddr = @ptrCast(*std.os.sockaddr, cur_ifaddr.*.ifa_addr);
+        if (sockaddr.*.family == c.AF_INET) {
+            const name = @as([*:0]const u8, cur_ifaddr.*.ifa_name);
+            const addr = net.Address{ .in = @ptrCast(*std.os.sockaddr_in, @alignCast(4, sockaddr)).* };
+            warn("name: {}, addr: {}\n", .{ name, addr });
+            if (!std.mem.eql(u8, name[0..2], "lo")) {
+                // choose first non-loopback interface
+                warn("chose: {}\n", .{name});
+                break addr;
+            }
+        }
+    } else error.NoInterfaceAddress;
+}
+
 pub fn main() anyerror!void {
     const allocator = std.heap.c_allocator;
 
@@ -155,29 +182,7 @@ pub fn main() anyerror!void {
         else => return err,
     };
 
-    // get self IP
-    var my_ifaddrs: [*c]ifaddrs.ifaddrs = null;
-    var ifaddrs_result = ifaddrs.getifaddrs(&my_ifaddrs);
-    if (ifaddrs_result == -1) {
-        warn("errno: {}\n", .{c.getErrno(ifaddrs_result)});
-        return error.NoInterfaceAddress;
-    }
-    defer ifaddrs.freeifaddrs(my_ifaddrs);
-
-    var cur_ifaddr = my_ifaddrs;
-    const self_addr = while (cur_ifaddr != null) : (cur_ifaddr = cur_ifaddr.*.ifa_next) {
-        const sockaddr = @ptrCast(*std.os.sockaddr, cur_ifaddr.*.ifa_addr);
-        if (sockaddr.*.family == c.AF_INET) {
-            const name = @as([*:0]const u8, cur_ifaddr.*.ifa_name);
-            const addr = net.Address{ .in = @ptrCast(*std.os.sockaddr_in, @alignCast(4, sockaddr)).* };
-            warn("name: {}, addr: {}\n", .{ name, addr });
-            if (!std.mem.eql(u8, name[0..2], "lo")) {
-                // choose first non-loopback interface
-                warn("chose: {}\n", .{name});
-                break addr;
-            }
-        }
-    } else return error.NoInterfaceAddress;
+    const self_addr = try getAddr();
 
     // TODO create advertising pkt for self
     const ad_pkt = "TODO actual pk";
