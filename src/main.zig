@@ -17,7 +17,7 @@ const Identity = struct {
 
     const feed_id_prefix = "@";
     const feed_id_suffix = ".ed25519";
-    const feed_id_len = feed_id_prefix.len + std.base64.Base64Encoder.calcSize(sodium.crypto_sign_ed25519_PUBLICKEYBYTES) + feed_id_suffix.len;
+    const feed_id_len = std.base64.Base64Encoder.calcSize(sodium.crypto_sign_ed25519_PUBLICKEYBYTES);
 
     fn getFeedID(pk: [sodium.crypto_sign_ed25519_PUBLICKEYBYTES]u8, feed_id: []u8) !void {
         var pk_base64 = [_]u8{0} ** std.base64.Base64Encoder.calcSize(pk.len);
@@ -27,15 +27,14 @@ const Identity = struct {
         }
 
         std.base64.standard_encoder.encode(&pk_base64, &pk);
-        const feed_id_parts = [_][]const u8{ Identity.feed_id_prefix, &pk_base64, Identity.feed_id_suffix };
 
         const out_stream = std.io.fixedBufferStream(feed_id).outStream();
-        for (feed_id_parts) |part| {
-            out_stream.writeAll(part) catch unreachable;
-        }
+        try out_stream.writeAll(&pk_base64);
 
         warn("feed_id: {}\n", .{feed_id});
     }
+
+    // TODO add helper to get display version of feed_id
 
     fn createWithKeypair(sk: [sodium.crypto_sign_ed25519_SECRETKEYBYTES]u8, pk: [sodium.crypto_sign_ed25519_PUBLICKEYBYTES]u8) !Identity {
         var identity = Identity{};
@@ -134,7 +133,7 @@ fn getAddr() !net.Address {
 
     // pick the first usable IPv4 interface
     var cur_ifaddr = my_ifaddrs;
-    return while (cur_ifaddr != null) : (cur_ifaddr = cur_ifaddr.*.ifa_next) {
+    var self_addr = while (cur_ifaddr != null) : (cur_ifaddr = cur_ifaddr.*.ifa_next) {
         const sockaddr = @ptrCast(*std.os.sockaddr, cur_ifaddr.*.ifa_addr);
         if (sockaddr.*.family == c.AF_INET) {
             const name = @as([*:0]const u8, cur_ifaddr.*.ifa_name);
@@ -146,7 +145,23 @@ fn getAddr() !net.Address {
                 break addr;
             }
         }
-    } else error.NoInterfaceAddress;
+    } else return error.NoInterfaceAddress;
+
+    // hard-coded ssb port
+    self_addr.setPort(8008);
+
+    return self_addr;
+}
+
+const ad_packet_len = "net:255.255.255.255:65535~shs:hkDMlkxBsvB5atp/tIbAaEggs2DG9kaRdUNB6i2zcUU=".len;
+fn createPacket(addr: net.Address, identity: Identity) ![ad_packet_len]u8 {
+    var out_buf: [ad_packet_len]u8 = undefined;
+    const out_stream = std.io.fixedBufferStream(&out_buf).outStream();
+    try out_stream.print("net:{}~shs:{}", .{ addr, identity.feed_id });
+
+    warn("packet body: {}\n", .{out_buf});
+
+    return out_buf;
 }
 
 pub fn main() anyerror!void {
@@ -184,8 +199,8 @@ pub fn main() anyerror!void {
 
     const self_addr = try getAddr();
 
-    // TODO create advertising pkt for self
-    const ad_pkt = "TODO actual pk";
+    // create advertising pkt for self
+    const ad_packet = try createPacket(self_addr, identity);
 
     // open socket
     const socket = c.socket(c.AF_INET, c.SOCK_DGRAM, 0);
@@ -198,7 +213,7 @@ pub fn main() anyerror!void {
     const flags = 0; // TODO
     //"255.255.255.255",
     const addr = try net.Address.parseIp("127.0.0.1", 8008);
-    var send_result = c.sendto(socket, ad_pkt, ad_pkt.len, flags, &addr.any, addr.any.len);
+    var send_result = c.sendto(socket, &ad_packet, ad_packet.len, flags, &addr.any, addr.any.len);
     if (send_result == -1) {
         warn("errno: {}\n", .{c.getErrno(send_result)});
         return error.SendFail;
