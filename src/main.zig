@@ -155,7 +155,7 @@ fn getAddr() !net.Address {
 
 const ad_packet_len = "net:255.255.255.255:65535~shs:hkDMlkxBsvB5atp/tIbAaEggs2DG9kaRdUNB6i2zcUU=".len;
 fn createPacket(addr: net.Address, identity: Identity) ![ad_packet_len]u8 {
-    var out_buf: [ad_packet_len]u8 = undefined;
+    var out_buf = [_]u8{0} ** ad_packet_len;
     const out_stream = std.io.fixedBufferStream(&out_buf).outStream();
     try out_stream.print("net:{}~shs:{}", .{ addr, identity.feed_id });
 
