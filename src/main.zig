@@ -1,6 +1,7 @@
 const sodium = @cImport(@cInclude("sodium.h"));
 const ifaddrs = @cImport(@cInclude("ifaddrs.h"));
 const c = std.c;
+const sys_socket = @cImport(@cInclude("sys/socket.h"));
 const std = @import("std");
 const warn = std.debug.warn;
 const net = std.net;
@@ -208,11 +209,23 @@ pub fn main() anyerror!void {
         warn("errno: {}\n", .{c.getErrno(socket)});
         return error.NoSocket;
     }
+    defer {
+        const close_err_int = c.close(socket);
+        if (close_err_int == -1) {
+            warn("error closing socket, errno: {}\n", .{c.getErrno(close_err_int)});
+        }
+    }
+
+    const option_value: c_int = 1; // need to be an int instead of a bool for some reason
+    const err_int = c.setsockopt(socket, sys_socket.SOL_SOCKET, sys_socket.SO_BROADCAST, &option_value, @sizeOf(@TypeOf(option_value)));
+    if (err_int == -1) {
+        warn("errno: {}\n", .{c.getErrno(err_int)});
+        return error.SocketError;
+    }
 
     // advertise self locally
     const flags = 0; // TODO
-    //"255.255.255.255",
-    const addr = try net.Address.parseIp("127.0.0.1", 8008);
+    const addr = try net.Address.parseIp("255.255.255.255", 8008);
     var send_result = c.sendto(socket, &ad_packet, ad_packet.len, flags, &addr.any, addr.any.len);
     if (send_result == -1) {
         warn("errno: {}\n", .{c.getErrno(send_result)});
