@@ -23,4 +23,12 @@ pub fn build(b: *Builder) void {
 
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
+
+    const tests = b.addTest("src/main.zig");
+    tests.setBuildMode(.Debug);
+    tests.addIncludeDir("/usr/local/include/sodium/");
+    tests.linkSystemLibrary("sodium");
+
+    const test_step = b.step("test", "Run the tests");
+    test_step.dependOn(&tests.step);
 }

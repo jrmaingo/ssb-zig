@@ -4,6 +4,7 @@ const c = std.c;
 const sys_socket = @cImport(@cInclude("sys/socket.h"));
 const std = @import("std");
 const warn = std.debug.warn;
+const expect = std.testing.expect;
 const net = std.net;
 
 const ssb_dir_name = ".ssb";
@@ -216,9 +217,7 @@ pub fn main() anyerror!void {
         }
     }
 
-    // TODO config at runtime?
-    const testing = true;
-    const addr = if (testing) blk: {
+    const addr = if (std.builtin.is_test) blk: {
         // just use localhost for testing purposes
         break :blk try net.Address.parseIp("127.0.0.1", 8008);
     } else blk: {
@@ -242,4 +241,10 @@ pub fn main() anyerror!void {
     }
 
     // TODO rest of program
+}
+
+test "generate new Identity" {
+    const identity = try Identity.create();
+    const identityCopy = try Identity.createFromSecretKey(identity.sk);
+    warn("test ran!\n", .{});
 }
