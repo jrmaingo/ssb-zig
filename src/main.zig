@@ -248,3 +248,15 @@ test "generate new Identity" {
     const identityCopy = try Identity.createFromSecretKey(identity.sk);
     warn("test ran!\n", .{});
 }
+
+test "read Identity from file" {
+    // TODO
+}
+
+test "create advertisement" {
+    // TODO
+}
+
+test "parse advertisement" {
+    // TODO
+}
