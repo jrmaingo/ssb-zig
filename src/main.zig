@@ -138,8 +138,9 @@ fn getAddr() !net.Address {
     var self_addr = while (cur_ifaddr != null) : (cur_ifaddr = cur_ifaddr.*.ifa_next) {
         const sockaddr = @ptrCast(*std.os.sockaddr, cur_ifaddr.*.ifa_addr);
         if (sockaddr.*.family == c.AF_INET) {
+            const ip4Addr = net.Ip4Address{ .sa = @ptrCast(*std.os.sockaddr_in, @alignCast(4, sockaddr)).* };
             const name = @as([*:0]const u8, cur_ifaddr.*.ifa_name);
-            const addr = net.Address{ .in = @ptrCast(*std.os.sockaddr_in, @alignCast(4, sockaddr)).* };
+            const addr = net.Address{ .in = ip4Addr };
             warn("name: {}, addr: {}\n", .{ name, addr });
             if (!std.mem.eql(u8, name[0..2], "lo")) {
                 // choose first non-loopback interface
